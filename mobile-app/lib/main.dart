@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'models/table_model.dart';
+import 'widgets/table_seats_grid.dart';
 
 void main() {
   runApp(const TarabApp());
@@ -58,8 +60,49 @@ class TarabHomeScreen extends StatelessWidget {
     required this.onToggleLanguage,
   });
 
+  TarabTable _sampleTable() {
+    return TarabTable(
+      tableId: 'TBL-001',
+      isPrivate: false,
+      entryFee: 5000,
+      seats: const [
+        TableSeat(
+          seatNumber: 1,
+          playerId: 'P-101',
+          playerName: 'أحمد',
+          isConnected: true,
+        ),
+        TableSeat(
+          seatNumber: 2,
+          playerId: 'P-102',
+          playerName: 'سارة',
+          isConnected: true,
+        ),
+        TableSeat(
+          seatNumber: 3,
+          playerId: 'BOT-1',
+          playerName: 'مرافق ذكي 1',
+          isBot: true,
+          isConnected: true,
+        ),
+        TableSeat(
+          seatNumber: 4,
+          playerId: 'BOT-2',
+          playerName: 'مرافق ذكي 2',
+          isBot: true,
+          isConnected: true,
+        ),
+        TableSeat(
+          seatNumber: 5,
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final table = _sampleTable();
+
     return Scaffold(
       appBar: AppBar(
         title: Text(isArabic ? 'طراب - TARAB' : 'TARAB'),
@@ -70,29 +113,30 @@ class TarabHomeScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                isArabic
-                    ? 'مرحباً بك في لعبة الورق طراب'
-                    : 'Welcome to TARAB Card Game',
-                style: Theme.of(context).textTheme.headlineSmall,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                isArabic
-                    ? 'طاولة من 5 مقاعد • اتصال لحظي • شخصيات مخصصة'
-                    : '5-Seat Table • Real-Time Play • Custom Characters',
-                style: Theme.of(context).textTheme.bodyMedium,
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              isArabic
+                  ? 'مرحباً بك في لعبة الورق طراب'
+                  : 'Welcome to TARAB Card Game',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              isArabic
+                  ? 'طاولة من 5 مقاعد • اتصال لحظي • شخصيات مخصصة'
+                  : '5-Seat Table • Real-Time Play • Custom Characters',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            TableSeatsGrid(
+              table: table,
+              isArabic: isArabic,
+            ),
+          ],
         ),
       ),
     );
