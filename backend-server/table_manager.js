@@ -33,6 +33,55 @@ function canStartLegalGame(table) {
   return getOccupiedSeatsCount(table) === TOTAL_SEATS;
 }
 
+function seatPlayer(table, { playerId, playerName, isBot = false, isConnected = true }) {
+  if (!playerId) {
+    throw new Error("معرّف اللاعب مطلوب لتسكين المقعد");
+  }
+
+  const alreadySeated = table.seats.some((seat) => seat.playerId === playerId);
+  if (alreadySeated) {
+    throw new Error("اللاعب جالس على الطاولة بالفعل");
+  }
+
+  const freeSeat = table.seats.find((seat) => !seat.playerId);
+  if (!freeSeat) {
+    throw new Error("الطاولة ممتلئة (5/5 مقاعد)");
+  }
+
+  freeSeat.playerId = playerId;
+  freeSeat.playerName = playerName || (isBot ? `شخصية آلية ${freeSeat.seatNumber}` : `لاعب ${freeSeat.seatNumber}`);
+  freeSeat.isBot = Boolean(isBot);
+  freeSeat.isConnected = Boolean(isConnected);
+
+  return {
+    table,
+    assignedSeat: freeSeat.seatNumber,
+    canStartLegalGame: canStartLegalGame(table),
+  };
+}
+
+function removePlayerFromSeat(table, playerId) {
+  const targetSeat = table.seats.find((seat) => seat.playerId === playerId);
+  if (!targetSeat) {
+    return {
+      table,
+      removed: false,
+      canStartLegalGame: canStartLegalGame(table),
+    };
+  }
+
+  targetSeat.playerId = null;
+  targetSeat.playerName = null;
+  targetSeat.isBot = false;
+  targetSeat.isConnected = false;
+
+  return {
+    table,
+    removed: true,
+    canStartLegalGame: canStartLegalGame(table),
+  };
+}
+
 module.exports = {
   TOTAL_SEATS,
   MIN_ENTRY_FEE,
@@ -41,4 +90,7 @@ module.exports = {
   createTable,
   getOccupiedSeatsCount,
   canStartLegalGame,
+  seatPlayer,
+  removePlayerFromSeat,
 };
+ض
