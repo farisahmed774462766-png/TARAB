@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'models/table_model.dart';
 import 'models/wallet_model.dart';
 import 'services/tarab_socket_service.dart';
+import 'widgets/round_board_widget.dart';
 import 'widgets/table_seats_grid.dart';
 import 'widgets/wallet_summary_card.dart';
 
@@ -76,6 +77,7 @@ class _TarabHomeScreenState extends State<TarabHomeScreen> {
   String? _lastFeedback;
   late TarabTable _table;
   late PlayerWallet _wallet;
+  Map<String, dynamic>? _round;
 
   @override
   void initState() {
@@ -159,6 +161,10 @@ class _TarabHomeScreenState extends State<TarabHomeScreen> {
         _lastFeedback = 'تم تسكين المقعد بنجاح (رقم المقعد: ${event['assignedSeat']})';
       } else if (type == 'WALLET_UPDATED') {
         _lastFeedback = 'تم تحديث المحفظة وتطبيق قواعد سداد الدين تلقائياً';
+      } else if (type == 'ROUND_STARTED') {
+        _lastFeedback = 'بدأت جولة الأوراق بنجاح';
+      } else if (type == 'CARD_PLAYED') {
+        _lastFeedback = 'تم لعب الورقة وتحديث الجولة';
       }
 
       if ((type == 'TABLE_CREATED' ||
@@ -166,6 +172,11 @@ class _TarabHomeScreenState extends State<TarabHomeScreen> {
               type == 'LEAVE_RESULT') &&
           event['table'] is Map<String, dynamic>) {
         _table = _parseTableFromJson(event['table'] as Map<String, dynamic>);
+      }
+
+      if ((type == 'ROUND_STARTED' || type == 'CARD_PLAYED') &&
+          event['round'] is Map<String, dynamic>) {
+        _round = event['round'] as Map<String, dynamic>;
       }
 
       if (event['wallet'] is Map<String, dynamic>) {
@@ -260,6 +271,30 @@ class _TarabHomeScreenState extends State<TarabHomeScreen> {
         playerId: _wallet.playerId,
         amount: 3000,
         source: 'optional_ad',
+      );
+    } catch (e) {
+      setState(() {
+        _lastFeedback = e.toString();
+      });
+    }
+  }
+
+  void _sendStartRound() {
+    try {
+      _socketService.startRound(tableId: _table.tableId, cardsPerPlayer: 5);
+    } catch (e) {
+      setState(() {
+        _lastFeedback = e.toString();
+      });
+    }
+  }
+
+  void _sendPlayCard(String cardId) {
+    try {
+      _socketService.playCard(
+        tableId: _table.tableId,
+        playerId: _wallet.playerId,
+        cardId: cardId,
       );
     } catch (e) {
       setState(() {
@@ -366,6 +401,14 @@ class _TarabHomeScreenState extends State<TarabHomeScreen> {
             TableSeatsGrid(
               table: _table,
               isArabic: isArabic,
+            ),
+            const SizedBox(height: 16),
+            RoundBoardWidget(
+              round: _round,
+              currentPlayerId: _wallet.playerId,
+              isArabic: isArabic,
+              onStartRound: _sendStartRound,
+              onPlayCard: _sendPlayCard,
             ),
           ],
         ),
