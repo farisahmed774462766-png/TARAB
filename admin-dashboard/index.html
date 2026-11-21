@@ -34,6 +34,10 @@ const {
   evaluateSubscriptionStatus,
 } = require("./vip_manager");
 const {
+  startCardRound,
+  playCard,
+} = require("./card_round_manager");
+const {
   ensurePlayerAndWallet,
   saveWalletAndTransaction,
   saveTableState,
@@ -43,6 +47,7 @@ const PORT = process.env.PORT || 3000;
 const DB_ENABLED = Boolean(process.env.DATABASE_URL);
 
 const tables = new Map();
+const rounds = new Map();
 const wallets = new Map();
 const rankProfiles = new Map();
 const socialProfiles = new Map();
@@ -127,6 +132,7 @@ const server = http.createServer((req, res) => {
         seatsPerTable: TOTAL_SEATS,
         entryFeeRange: { min: MIN_ENTRY_FEE, max: MAX_ENTRY_FEE },
         activeTables: tables.size,
+        activeRounds: rounds.size,
       })
     );
     return;
@@ -198,6 +204,45 @@ wss.on("connection", (socket) => {
         const result = leaveTable({ table, playerId: payload.playerId });
         await persistTable(result.table);
         socket.send(JSON.stringify({ type: "LEAVE_RESULT", ...result }));
+        return;
+      }
+
+      // أحداث جولة الأوراق
+      if (event.type === "START_ROUND") {
+        const table = tables.get(payload.tableId);
+        if (!table) {
+          socket.send(JSON.stringify({ type: "ERROR", message: "الطاولة غير موجودة" }));
+          return;
+        }
+        const round = startCardRound(table, Number(payload.cardsPerPlayer ?? 5));
+        rounds.set(table.tableId, round);
+        socket.send(JSON.stringify({ type: "ROUND_STARTED", round }));
+        return;
+      }
+
+      if (event.type === "PLAY_CARD") {
+        const tableId = payload.tableId;
+        const round = rounds.get(tableId);
+        if (!round) {
+          socket.send(JSON.stringify({ type: "ERROR", message: "لا توجد جولة نشطة لهذه الطاولة" }));
+          return;
+        }
+        const updatedRound = playCard(round, {
+          playerId: payload.playerId,
+          cardId: payload.cardId,
+        });
+
+        if (updatedRound.status === "FINISHED" && updatedRound.winnerId) {
+          const table = tables.get(tableId);
+          if (table) {
+            const winWallet = await getOrCreateWallet(updatedRound.winnerId);
+            const potReward = table.entryFee * 2;
+            applyReward(winWallet, potReward, "round_win");
+            await persistWallet(winWallet);
+          }
+        }
+
+        socket.send(JSON.stringify({ type: "CARD_PLAYED", round: updatedRound }));
         return;
       }
 
