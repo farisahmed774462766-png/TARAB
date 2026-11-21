@@ -1,7 +1,7 @@
-name: tarab_mobile
-description: Multiplayer card game TARAB for Android and iOS.
+name: tarab_mobile_app
+description: Flutter client for TARAB 5-seat real-time card game.
 publish_to: "none"
-version: 0.1.0+1
+version: 1.0.0+1
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -9,13 +9,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_localizations:
-    sdk: flutter
-
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  flutter_lints: ^4.0.0
 
 flutter:
   uses-material-design: true
