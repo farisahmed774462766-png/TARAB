@@ -1,120 +1,351 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>لوحة الإدارة - طراب (TARAB)</title>
-  <style>
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background-color: #f4f6f8;
-      color: #1f2937;
-      margin: 0;
-      padding: 20px;
-    }
-    header {
-      background-color: #0f766e;
-      color: #ffffff;
-      padding: 16px 24px;
-      border-radius: 10px;
-      margin-bottom: 20px;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-    .card {
-      background: #ffffff;
-      padding: 16px;
-      border-radius: 10px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-    }
-    .card h3 {
-      margin: 0 0 8px;
-      font-size: 0.95rem;
-      color: #4b5563;
-    }
-    .card p {
-      margin: 0;
-      font-size: 1.4rem;
-      font-weight: bold;
-      color: #0f766e;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      background: #ffffff;
-      border-radius: 10px;
-      overflow: hidden;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-    }
-    th, td {
-      padding: 12px 16px;
-      text-align: right;
-      border-bottom: 1px solid #e5e7eb;
-    }
-    th {
-      background-color: #f9fafb;
-      font-weight: 600;
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>لوحة الإدارة الرئيسية — طراب (TARAB)</h1>
-    <p>مراقبة الطاولات (5 مقاعد)، المحافظ المالية، والديون</p>
-  </header>
+const http = require("http");
+const { WebSocketServer } = require("ws");
+const {
+  TOTAL_SEATS,
+  MIN_ENTRY_FEE,
+  MAX_ENTRY_FEE,
+  createTable,
+} = require("./table_manager");
+const {
+  createPlayerWallet,
+  applyReward,
+  settleDebtManually,
+} = require("./economy_manager");
+const { joinTableWithWallet, leaveTable } = require("./game_session");
+const {
+  createPlayerRankProfile,
+  recordMatchResult,
+  resetSeasonPoints,
+  createTournament,
+} = require("./season_manager");
+const {
+  createSocialProfile,
+  sendFriendRequest,
+  acceptFriendRequest,
+  removeFriend,
+  blockUser,
+  createPrivateTableInvite,
+  registerReferral,
+} = require("./social_manager");
+const {
+  createVipAccount,
+  awardVipPoints,
+  redeemVipPointsForCoins,
+  evaluateSubscriptionStatus,
+} = require("./vip_manager");
+const {
+  ensurePlayerAndWallet,
+  saveWalletAndTransaction,
+  saveTableState,
+} = require("./db");
 
-  <section class="grid">
-    <div class="card">
-      <h3>الطاولات النشطة</h3>
-      <p>12 طاولة</p>
-    </div>
-    <div class="card">
-      <h3>إجمالي اللاعبين المتصلين</h3>
-      <p>54 لاعب</p>
-    </div>
-    <div class="card">
-      <h3>حسابات عليها ديون</h3>
-      <p>7 حسابات</p>
-    </div>
-    <div class="card">
-      <h3>نطاق رسوم الدخول</h3>
-      <p>1,000 - 100,000</p>
-    </div>
-  </section>
+const PORT = process.env.PORT || 3000;
+const DB_ENABLED = Boolean(process.env.DATABASE_URL);
 
-  <section>
-    <h2>مراقبة المحافظ والديون</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>معرّف اللاعب</th>
-          <th>الاسم</th>
-          <th>رصيد الكوينز</th>
-          <th>قيمة الدين</th>
-          <th>حالة الدخول للطاولات</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>P-101</td>
-          <td>أحمد</td>
-          <td>25,000</td>
-          <td>0</td>
-          <td>مسموح</td>
-        </tr>
-        <tr>
-          <td>P-104</td>
-          <td>خالد</td>
-          <td>1,500</td>
-          <td>4,000</td>
-          <td>موقوف حتى سداد الدين</td>
-        </tr>
-      </tbody>
-    </table>
-  </section>
-</body>
-</html>
+const tables = new Map();
+const wallets = new Map();
+const rankProfiles = new Map();
+const socialProfiles = new Map();
+const vipAccounts = new Map();
+const tournaments = new Map();
+
+async function getOrCreateWallet(playerId, displayName = null) {
+  if (wallets.has(playerId)) {
+    return wallets.get(playerId);
+  }
+
+  let wallet;
+  if (DB_ENABLED) {
+    try {
+      wallet = await ensurePlayerAndWallet(playerId, displayName, 10000);
+    } catch (_) {
+      wallet = createPlayerWallet({ playerId, coins: 10000, debt: 0 });
+    }
+  } else {
+    wallet = createPlayerWallet({ playerId, coins: 10000, debt: 0 });
+  }
+
+  wallets.set(playerId, wallet);
+  return wallet;
+}
+
+function getOrCreateSocial(playerId) {
+  if (!socialProfiles.has(playerId)) {
+    socialProfiles.set(playerId, createSocialProfile({ playerId }));
+  }
+  return socialProfiles.get(playerId);
+}
+
+function getOrCreateVip(playerId) {
+  if (!vipAccounts.has(playerId)) {
+    vipAccounts.set(playerId, createVipAccount({ playerId }));
+  }
+  const account = vipAccounts.get(playerId);
+  return evaluateSubscriptionStatus(account);
+}
+
+function getOrCreateRank(playerId, displayName = null) {
+  if (!rankProfiles.has(playerId)) {
+    rankProfiles.set(
+      playerId,
+      createPlayerRankProfile({
+        playerId,
+        displayName: displayName || `لاعب ${playerId}`,
+      })
+    );
+  }
+  return rankProfiles.get(playerId);
+}
+
+async function persistWallet(wallet) {
+  if (!DB_ENABLED) return;
+  try {
+    const lastTx = wallet.transactions[wallet.transactions.length - 1] || null;
+    await saveWalletAndTransaction(wallet, lastTx);
+  } catch (_) {
+    // تجاهل خطأ الاتصال المؤقت بقاعدة البيانات حتى لا يتوقف الاتصال اللحظي
+  }
+}
+
+async function persistTable(table) {
+  if (!DB_ENABLED) return;
+  try {
+    await saveTableState(table);
+  } catch (_) {
+    // تجاهل خطأ الاتصال المؤقت بقاعدة البيانات
+  }
+}
+
+const server = http.createServer((req, res) => {
+  if (req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(
+      JSON.stringify({
+        service: "TARAB Game Server",
+        status: "running",
+        dbPersistence: DB_ENABLED,
+        seatsPerTable: TOTAL_SEATS,
+        entryFeeRange: { min: MIN_ENTRY_FEE, max: MAX_ENTRY_FEE },
+        activeTables: tables.size,
+      })
+    );
+    return;
+  }
+
+  res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+  res.end("TARAB WebSocket & Game Server is active");
+});
+
+const wss = new WebSocketServer({ server });
+
+wss.on("connection", (socket) => {
+  socket.send(
+    JSON.stringify({
+      type: "WELCOME",
+      message: "مرحباً بك في خادم لعبة طراب (TARAB)",
+      seatsPerTable: TOTAL_SEATS,
+    })
+  );
+
+  socket.on("message", async (rawData) => {
+    try {
+      const event = JSON.parse(rawData.toString());
+      const payload = event.payload || {};
+
+      if (event.type === "CREATE_TABLE") {
+        const tableId = payload.tableId || `TBL-${tables.size + 1}`;
+        const table = createTable({
+          tableId,
+          isPrivate: Boolean(payload.isPrivate),
+          entryFee: Number(payload.entryFee ?? MIN_ENTRY_FEE),
+        });
+        tables.set(tableId, table);
+        await persistTable(table);
+        socket.send(JSON.stringify({ type: "TABLE_CREATED", table }));
+        return;
+      }
+
+      if (event.type === "JOIN_TABLE") {
+        const table = tables.get(payload.tableId);
+        if (!table) {
+          socket.send(JSON.stringify({ type: "ERROR", message: "الطاولة غير موجودة" }));
+          return;
+        }
+        const wallet = await getOrCreateWallet(payload.playerId, payload.playerName);
+        const result = joinTableWithWallet({
+          table,
+          wallet,
+          playerName: payload.playerName,
+          isBot: Boolean(payload.isBot),
+          isConnected: true,
+        });
+        if (result.joined) {
+          await persistTable(result.table);
+          if (!payload.isBot) {
+            await persistWallet(result.wallet);
+          }
+        }
+        socket.send(JSON.stringify({ type: "JOIN_RESULT", ...result }));
+        return;
+      }
+
+      if (event.type === "LEAVE_TABLE") {
+        const table = tables.get(payload.tableId);
+        if (!table) {
+          socket.send(JSON.stringify({ type: "ERROR", message: "الطاولة غير موجودة" }));
+          return;
+        }
+        const result = leaveTable({ table, playerId: payload.playerId });
+        await persistTable(result.table);
+        socket.send(JSON.stringify({ type: "LEAVE_RESULT", ...result }));
+        return;
+      }
+
+      if (event.type === "APPLY_REWARD") {
+        const wallet = await getOrCreateWallet(payload.playerId);
+        applyReward(wallet, payload.amount, payload.source || "daily_reward");
+        await persistWallet(wallet);
+        socket.send(JSON.stringify({ type: "WALLET_UPDATED", wallet }));
+        return;
+      }
+
+      if (event.type === "SETTLE_DEBT") {
+        const wallet = await getOrCreateWallet(payload.playerId);
+        const settlement = settleDebtManually(wallet, payload.amount);
+        await persistWallet(wallet);
+        socket.send(JSON.stringify({ type: "DEBT_SETTLED", settlement, wallet }));
+        return;
+      }
+
+      // أحداث الأصدقاء والدعوات والإحالات
+      if (event.type === "SEND_FRIEND_REQUEST") {
+        const sender = getOrCreateSocial(payload.senderId);
+        const receiver = getOrCreateSocial(payload.receiverId);
+        const resSocial = sendFriendRequest(sender, receiver);
+        socket.send(JSON.stringify({ type: "FRIEND_REQUEST_SENT", ...resSocial }));
+        return;
+      }
+
+      if (event.type === "ACCEPT_FRIEND_REQUEST") {
+        const accepter = getOrCreateSocial(payload.accepterId);
+        const requester = getOrCreateSocial(payload.requesterId);
+        const resSocial = acceptFriendRequest(accepter, requester);
+        socket.send(JSON.stringify({ type: "FRIEND_REQUEST_ACCEPTED", ...resSocial }));
+        return;
+      }
+
+      if (event.type === "REMOVE_FRIEND") {
+        const profile = getOrCreateSocial(payload.playerId);
+        removeFriend(profile, payload.targetId);
+        socket.send(JSON.stringify({ type: "FRIEND_REMOVED", profile }));
+        return;
+      }
+
+      if (event.type === "BLOCK_USER") {
+        const profile = getOrCreateSocial(payload.playerId);
+        blockUser(profile, payload.targetId);
+        socket.send(JSON.stringify({ type: "USER_BLOCKED", profile }));
+        return;
+      }
+
+      if (event.type === "CREATE_PRIVATE_INVITE") {
+        const invite = createPrivateTableInvite({
+          tableId: payload.tableId,
+          hostId: payload.hostId,
+          inviteCode: payload.inviteCode,
+        });
+        socket.send(JSON.stringify({ type: "PRIVATE_INVITE_CREATED", invite }));
+        return;
+      }
+
+      if (event.type === "REGISTER_REFERRAL") {
+        const inviterSocial = getOrCreateSocial(payload.inviterId);
+        const referral = registerReferral({
+          inviterProfile: inviterSocial,
+          inviteeId: payload.inviteeId,
+          referralRewardCoins: payload.rewardCoins ?? 500,
+        });
+        const wallet = await getOrCreateWallet(payload.inviterId);
+        applyReward(wallet, referral.rewardCoins, "friend_referral");
+        await persistWallet(wallet);
+        socket.send(JSON.stringify({ type: "REFERRAL_REGISTERED", referral, wallet }));
+        return;
+      }
+
+      // أحداث VIP ونقاط الولاء
+      if (event.type === "AWARD_VIP_POINTS") {
+        const account = getOrCreateVip(payload.playerId);
+        const result = awardVipPoints(account, payload.points, payload.reason || "activity");
+        socket.send(JSON.stringify({ type: "VIP_POINTS_AWARDED", ...result }));
+        return;
+      }
+
+      if (event.type === "REDEEM_VIP_POINTS") {
+        const account = getOrCreateVip(payload.playerId);
+        const redemption = redeemVipPointsForCoins(account, payload.pointsToRedeem);
+        const wallet = await getOrCreateWallet(payload.playerId);
+        applyReward(wallet, redemption.coinsEarned, "vip_points_redemption");
+        await persistWallet(wallet);
+        socket.send(JSON.stringify({ type: "VIP_POINTS_REDEEMED", redemption, wallet }));
+        return;
+      }
+
+      // أحداث المواسم والبطولات
+      if (event.type === "RECORD_MATCH_RESULT") {
+        const profile = getOrCreateRank(payload.playerId, payload.displayName);
+        recordMatchResult(profile, {
+          won: Boolean(payload.won),
+          pointsDelta: payload.pointsDelta ?? 25,
+          matchSummary: payload.matchSummary || "",
+        });
+        socket.send(JSON.stringify({ type: "RANK_UPDATED", profile }));
+        return;
+      }
+
+      if (event.type === "CREATE_TOURNAMENT") {
+        const tournament = createTournament({
+          tournamentId: payload.tournamentId || `TRN-${tournaments.size + 1}`,
+          title: payload.title || "بطولة طراب",
+          cadence: payload.cadence || "DAILY",
+          entryFee: payload.entryFee ?? 1000,
+          tier: payload.tier || "STANDARD",
+        });
+        tournaments.set(tournament.tournamentId, tournament);
+        socket.send(JSON.stringify({ type: "TOURNAMENT_CREATED", tournament }));
+        return;
+      }
+
+      if (event.type === "RESET_SEASON") {
+        const updatedList = resetSeasonPoints(
+          Array.from(rankProfiles.values()),
+          payload.seasonLabel || "Season Reset"
+        );
+        rankProfiles.clear();
+        for (const item of updatedList) {
+          rankProfiles.set(item.playerId, item);
+        }
+        socket.send(JSON.stringify({ type: "SEASON_RESET", profiles: updatedList }));
+        return;
+      }
+
+      socket.send(
+        JSON.stringify({
+          type: "ACK",
+          receivedType: event.type || "UNKNOWN",
+          timestamp: new Date().toISOString(),
+        })
+      );
+    } catch (err) {
+      socket.send(
+        JSON.stringify({
+          type: "ERROR",
+          message: err.message || "صيغة الرسالة غير صالحة (JSON مطلوب)",
+        })
+      );
+    }
+  });
+});
+
+server.listen(PORT, () => {
+  console.log(`TARAB server listening on port ${PORT}`);
+});
