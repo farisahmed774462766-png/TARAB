@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'models/table_model.dart';
+import 'models/wallet_model.dart';
 import 'widgets/table_seats_grid.dart';
+import 'widgets/wallet_summary_card.dart';
 
 void main() {
   runApp(const TarabApp());
@@ -99,9 +101,29 @@ class TarabHomeScreen extends StatelessWidget {
     );
   }
 
+  PlayerWallet _sampleWallet() {
+    return PlayerWallet(
+      playerId: 'P-101',
+      coins: 12000,
+      debt: 2500,
+      transactions: [
+        WalletTransaction(
+          type: 'REWARD',
+          source: 'daily_checkin',
+          amount: 5000,
+          paidTowardsDebt: 2500,
+          addedCoins: 2500,
+          remainingDebt: 2500,
+          timestamp: DateTime.now(),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final table = _sampleTable();
+    final wallet = _sampleWallet();
 
     return Scaffold(
       appBar: AppBar(
@@ -130,6 +152,12 @@ class TarabHomeScreen extends StatelessWidget {
                   ? 'طاولة من 5 مقاعد • اتصال لحظي • شخصيات مخصصة'
                   : '5-Seat Table • Real-Time Play • Custom Characters',
               style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            WalletSummaryCard(
+              wallet: wallet,
+              entryFee: table.entryFee,
+              isArabic: isArabic,
             ),
             const SizedBox(height: 16),
             TableSeatsGrid(
