@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'models/table_model.dart';
 import 'models/wallet_model.dart';
+import 'services/tarab_socket_service.dart';
 import 'widgets/table_seats_grid.dart';
 import 'widgets/wallet_summary_card.dart';
 
@@ -52,7 +54,7 @@ class _TarabAppState extends State<TarabApp> {
   }
 }
 
-class TarabHomeScreen extends StatelessWidget {
+class TarabHomeScreen extends StatefulWidget {
   final bool isArabic;
   final VoidCallback onToggleLanguage;
 
@@ -62,7 +64,27 @@ class TarabHomeScreen extends StatelessWidget {
     required this.onToggleLanguage,
   });
 
-  TarabTable _sampleTable() {
+  @override
+  State<TarabHomeScreen> createState() => _TarabHomeScreenState();
+}
+
+class _TarabHomeScreenState extends State<TarabHomeScreen> {
+  final TarabSocketService _socketService = TarabSocketService();
+  StreamSubscription>? _subscription;
+
+  String _connectionStatus = 'غير متصل بالخادم';
+  late TarabTable _table;
+  late PlayerWallet _wallet;
+
+  @override
+  void initState() {
+    super.initState();
+    _table = _initialTable();
+    _wallet = _initialWallet();
+    _subscription = _socketService.events.listen(_handleServerEvent);
+  }
+
+  TarabTable _initialTable() {
     return TarabTable(
       tableId: 'TBL-001',
       isPrivate: false,
@@ -101,7 +123,7 @@ class TarabHomeScreen extends StatelessWidget {
     );
   }
 
-  PlayerWallet _sampleWallet() {
+  PlayerWallet _initialWallet() {
     return PlayerWallet(
       playerId: 'P-101',
       coins: 12000,
@@ -120,17 +142,90 @@ class TarabHomeScreen extends StatelessWidget {
     );
   }
 
+  void _handleServerEvent(Map<String, dynamic> event) {
+    final type = event['type'] as String? ?? '';
+
+    setState(() {
+      if (type == 'WELCOME') {
+        _connectionStatus = 'متصل بخادم TARAB';
+      } else if (type == 'SOCKET_CLOSED' || type == 'SOCKET_ERROR') {
+        _connectionStatus = 'انقطع الاتصال بالخادم';
+      } else if ((type == 'TABLE_CREATED' ||
+              type == 'JOIN_RESULT' ||
+              type == 'LEAVE_RESULT') &&
+          event['table'] is Map<String, dynamic>) {
+        _table = _parseTableFromJson(event['table'] as Map<String, dynamic>);
+      }
+
+      if (event['wallet'] is Map<String, dynamic>) {
+        _wallet = _parseWalletFromJson(event['wallet'] as Map<String, dynamic>);
+      }
+    });
+  }
+
+  TarabTable _parseTableFromJson(Map<String, dynamic> json) {
+    final rawSeats = (json['seats'] as List<dynamic>? ?? []);
+    final seats = rawSeats.map((item) {
+      final seatMap = item as Map<String, dynamic>;
+      return TableSeat(
+        seatNumber: (seatMap['seatNumber'] as num?)?.toInt() ?? 1,
+        playerId: seatMap['playerId'] as String?,
+        playerName: seatMap['playerName'] as String?,
+        isBot: seatMap['isBot'] as bool? ?? false,
+        isConnected: seatMap['isConnected'] as bool? ?? false,
+      );
+    }).toList();
+
+    return TarabTable(
+      tableId: json['tableId'] as String? ?? _table.tableId,
+      isPrivate: json['isPrivate'] as bool? ?? false,
+      entryFee: (json['entryFee'] as num?)?.toInt() ?? _table.entryFee,
+      seats: seats.isEmpty ? _table.seats : seats,
+    );
+  }
+
+  PlayerWallet _parseWalletFromJson(Map<String, dynamic> json) {
+    return PlayerWallet(
+      playerId: json['playerId'] as String? ?? _wallet.playerId,
+      coins: (json['coins'] as num?)?.toInt() ?? _wallet.coins,
+      debt: (json['debt'] as num?)?.toInt() ?? _wallet.debt,
+      transactions: _wallet.transactions,
+    );
+  }
+
+  Future<void> _connectSocket() async {
+    setState(() {
+      _connectionStatus = 'جاري الاتصال...';
+    });
+    try {
+      await _socketService.connect('ws://localhost:3000');
+      setState(() {
+        _connectionStatus = 'متصل بخادم TARAB';
+      });
+    } catch (e) {
+      setState(() {
+        _connectionStatus = 'تعذر الاتصال: $e';
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    _socketService.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final table = _sampleTable();
-    final wallet = _sampleWallet();
+    final isArabic = widget.isArabic;
 
     return Scaffold(
       appBar: AppBar(
         title: Text(isArabic ? 'طراب - TARAB' : 'TARAB'),
         actions: [
           TextButton(
-            onPressed: onToggleLanguage,
+            onPressed: widget.onToggleLanguage,
             child: Text(isArabic ? 'EN' : 'العربية'),
           ),
         ],
@@ -153,15 +248,36 @@ class TarabHomeScreen extends StatelessWidget {
                   : '5-Seat Table • Real-Time Play • Custom Characters',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      isArabic
+                          ? 'حالة الاتصال: $_connectionStatus'
+                          : 'Socket: $_connectionStatus',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    ElevatedButton(
+                      onPressed: _connectSocket,
+                      child: Text(isArabic ? 'اتصال لحظي' : 'Connect'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
             const SizedBox(height: 16),
             WalletSummaryCard(
-              wallet: wallet,
-              entryFee: table.entryFee,
+              wallet: _wallet,
+              entryFee: _table.entryFee,
               isArabic: isArabic,
             ),
             const SizedBox(height: 16),
             TableSeatsGrid(
-              table: table,
+              table: _table,
               isArabic: isArabic,
             ),
           ],
