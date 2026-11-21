@@ -73,6 +73,7 @@ class _TarabHomeScreenState extends State<TarabHomeScreen> {
   StreamSubscription>? _subscription;
 
   String _connectionStatus = 'غير متصل بالخادم';
+  String? _lastFeedback;
   late TarabTable _table;
   late PlayerWallet _wallet;
 
@@ -150,7 +151,17 @@ class _TarabHomeScreenState extends State<TarabHomeScreen> {
         _connectionStatus = 'متصل بخادم TARAB';
       } else if (type == 'SOCKET_CLOSED' || type == 'SOCKET_ERROR') {
         _connectionStatus = 'انقطع الاتصال بالخادم';
-      } else if ((type == 'TABLE_CREATED' ||
+      } else if (type == 'ERROR' || (type == 'JOIN_RESULT' && event['joined'] == false)) {
+        _lastFeedback = event['reason'] as String? ??
+            event['message'] as String? ??
+            'تعذر تنفيذ العملية';
+      } else if (type == 'JOIN_RESULT' && event['joined'] == true) {
+        _lastFeedback = 'تم تسكين المقعد بنجاح (رقم المقعد: ${event['assignedSeat']})';
+      } else if (type == 'WALLET_UPDATED') {
+        _lastFeedback = 'تم تحديث المحفظة وتطبيق قواعد سداد الدين تلقائياً';
+      }
+
+      if ((type == 'TABLE_CREATED' ||
               type == 'JOIN_RESULT' ||
               type == 'LEAVE_RESULT') &&
           event['table'] is Map<String, dynamic>) {
@@ -196,6 +207,7 @@ class _TarabHomeScreenState extends State<TarabHomeScreen> {
   Future<void> _connectSocket() async {
     setState(() {
       _connectionStatus = 'جاري الاتصال...';
+      _lastFeedback = null;
     });
     try {
       await _socketService.connect('ws://localhost:3000');
@@ -205,6 +217,53 @@ class _TarabHomeScreenState extends State<TarabHomeScreen> {
     } catch (e) {
       setState(() {
         _connectionStatus = 'تعذر الاتصال: $e';
+      });
+    }
+  }
+
+  void _sendCreateTable() {
+    try {
+      _socketService.createTable(
+        tableId: _table.tableId,
+        isPrivate: _table.isPrivate,
+        entryFee: _table.entryFee,
+      );
+      setState(() {
+        _lastFeedback = 'تم إرسال طلب إنشاء الطاولة (${_table.tableId})';
+      });
+    } catch (e) {
+      setState(() {
+        _lastFeedback = e.toString();
+      });
+    }
+  }
+
+  void _sendJoinBot() {
+    try {
+      final botIndex = _table.occupiedSeatsCount + 1;
+      _socketService.joinTable(
+        tableId: _table.tableId,
+        playerId: 'BOT-$botIndex',
+        playerName: 'مرافق ذكي $botIndex',
+        isBot: true,
+      );
+    } catch (e) {
+      setState(() {
+        _lastFeedback = e.toString();
+      });
+    }
+  }
+
+  void _sendReward() {
+    try {
+      _socketService.applyReward(
+        playerId: _wallet.playerId,
+        amount: 3000,
+        source: 'optional_ad',
+      );
+    } catch (e) {
+      setState(() {
+        _lastFeedback = e.toString();
       });
     }
   }
@@ -269,6 +328,34 @@ class _TarabHomeScreenState extends State<TarabHomeScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton(
+                  onPressed: _sendCreateTable,
+                  child: Text(isArabic ? 'إنشاء طاولة' : 'Create Table'),
+                ),
+                OutlinedButton(
+                  onPressed: _sendJoinBot,
+                  child: Text(isArabic ? 'إضافة شخصية آلية' : 'Add Bot'),
+                ),
+                OutlinedButton(
+                  onPressed: _sendReward,
+                  child: Text(isArabic ? 'مكافأة (+3,000)' : 'Reward (+3,000)'),
+                ),
+              ],
+            ),
+            if (_lastFeedback != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _lastFeedback!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+            ],
             const SizedBox(height: 16),
             WalletSummaryCard(
               wallet: _wallet,
