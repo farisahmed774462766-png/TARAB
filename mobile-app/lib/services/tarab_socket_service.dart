@@ -89,6 +89,28 @@ class TarabSocketService {
     });
   }
 
+  void startRound({
+    required String tableId,
+    int cardsPerPlayer = 5,
+  }) {
+    sendEvent('START_ROUND', {
+      'tableId': tableId,
+      'cardsPerPlayer': cardsPerPlayer,
+    });
+  }
+
+  void playCard({
+    required String tableId,
+    required String playerId,
+    required String cardId,
+  }) {
+    sendEvent('PLAY_CARD', {
+      'tableId': tableId,
+      'playerId': playerId,
+      'cardId': cardId,
+    });
+  }
+
   void applyReward({
     required String playerId,
     required int amount,
