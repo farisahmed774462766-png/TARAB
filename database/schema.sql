@@ -1,0 +1,48 @@
+-- مخطط قاعدة البيانات التأسيسي للعبة الورق طراب (TARAB)
+
+CREATE TABLE IF NOT EXISTS players (
+  player_id VARCHAR(64) PRIMARY KEY,
+  display_name VARCHAR(100) NOT NULL,
+  rank_points INTEGER NOT NULL DEFAULT 0,
+  is_vip BOOLEAN NOT NULL DEFAULT FALSE,
+  vip_tier VARCHAR(32),
+  vip_points INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS player_wallets (
+  player_id VARCHAR(64) PRIMARY KEY REFERENCES players(player_id) ON DELETE CASCADE,
+  coins BIGINT NOT NULL DEFAULT 0 CHECK (coins >= 0),
+  debt BIGINT NOT NULL DEFAULT 0 CHECK (debt >= 0),
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS wallet_transactions (
+  transaction_id BIGSERIAL PRIMARY KEY,
+  player_id VARCHAR(64) NOT NULL REFERENCES players(player_id) ON DELETE CASCADE,
+  tx_type VARCHAR(32) NOT NULL,
+  source VARCHAR(64),
+  amount BIGINT NOT NULL DEFAULT 0,
+  paid_towards_debt BIGINT NOT NULL DEFAULT 0,
+  added_coins BIGINT NOT NULL DEFAULT 0,
+  remaining_debt BIGINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS game_tables (
+  table_id VARCHAR(64) PRIMARY KEY,
+  is_private BOOLEAN NOT NULL DEFAULT FALSE,
+  entry_fee INTEGER NOT NULL CHECK (entry_fee BETWEEN 1000 AND 100000),
+  status VARCHAR(24) NOT NULL DEFAULT 'WAITING',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS table_seats (
+  table_id VARCHAR(64) NOT NULL REFERENCES game_tables(table_id) ON DELETE CASCADE,
+  seat_number SMALLINT NOT NULL CHECK (seat_number BETWEEN 1 AND 5),
+  player_id VARCHAR(64) REFERENCES players(player_id) ON DELETE SET NULL,
+  player_name VARCHAR(100),
+  is_bot BOOLEAN NOT NULL DEFAULT FALSE,
+  is_connected BOOLEAN NOT NULL DEFAULT FALSE,
+  PRIMARY KEY (table_id, seat_number)
+);
